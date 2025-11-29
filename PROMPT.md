@@ -1,0 +1,12 @@
+- Create a VueJS app using single index.html file. Use Vuetify and VueRouter. 
+- In VueJS do not use inline templates as string. Use html elelment and reference using id.
+- Serve that file using web app created using FastAPI.
+- The app should scrape economic letters from: https://www.frbsf.org/research-and-insights/publications/economic-letter/
+- The app shuold allow users to get insights from the letters using LLM.
+- You are running on EC2 with admin role so you do not need any credentials to use any AWS services.
+- Use Bedrock model us.anthropic.claude-sonnet-4-20250514-v1:0 
+- Use us-east-1 region.
+- User should be able to fetch new letters.
+- User shuold be able to fetch more (past) letters.
+- Usser shuold be able to navigate to to the original page of the letter.
+- Store questions that user asked. When user revisit same letter the old question and answers should be there and user should be able to see them. Allow user to delete past questions and answers.
