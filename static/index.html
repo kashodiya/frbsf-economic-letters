@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FRBSF Economic Letters Analyzer</title>
+    
+    <!-- Vuetify CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/vuetify@3.4.4/dist/vuetify.min.css" rel="stylesheet">
+    <!-- Material Design Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.3.67/css/materialdesignicons.min.css" rel="stylesheet">
+    
+    <style>
+        .letter-card {
+            margin-bottom: 16px;
+        }
+        .insight-section {
+            margin-top: 24px;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+        }
+        .markdown-content {
+            line-height: 1.6;
+        }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3, 
+        .markdown-content h4, .markdown-content h5, .markdown-content h6 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+        }
+        .markdown-content h1 { font-size: 1.5em; }
+        .markdown-content h2 { font-size: 1.3em; }
+        .markdown-content h3 { font-size: 1.2em; }
+        .markdown-content h4 { font-size: 1.1em; }
+        .markdown-content p {
+            margin-bottom: 1em;
+        }
+        .markdown-content ul, .markdown-content ol {
+            margin-bottom: 1em;
+            padding-left: 1.5em;
+        }
+        .markdown-content li {
+            margin-bottom: 0.25em;
+        }
+        .markdown-content blockquote {
+            border-left: 4px solid #1976D2;
+            padding-left: 1em;
+            margin: 1em 0;
+            font-style: italic;
+            background-color: #f5f5f5;
+            padding: 0.5em 1em;
+        }
+        .markdown-content code {
+            background-color: #f5f5f5;
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .markdown-content pre {
+            background-color: #f5f5f5;
+            padding: 1em;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 1em 0;
+        }
+        .markdown-content pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+        .markdown-content strong {
+            font-weight: 600;
+        }
+        .markdown-content em {
+            font-style: italic;
+        }
+        .question-history {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <v-app>
+            <v-app-bar color="primary" dark>
+                <v-app-bar-title>
+                    <v-icon class="mr-2">mdi-bank</v-icon>
+                    FRBSF Economic Letters Analyzer
+                </v-app-bar-title>
+                <v-spacer></v-spacer>
+                <v-btn @click="$router.push('/')" text>
+                    <v-icon>mdi-home</v-icon>
+                    Home
+                </v-btn>
+            </v-app-bar>
+
+            <v-main>
+                <v-container fluid>
+                    <router-view></router-view>
+                </v-container>
+            </v-main>
+
+            <!-- Loading overlay -->
+            <div v-if="loading" class="loading-overlay">
+                <v-progress-circular
+                    indeterminate
+                    size="64"
+                    color="primary"
+                ></v-progress-circular>
+            </div>
+        </v-app>
+    </div>
+
+    <!-- Home Component Template -->
+    <template id="home-template">
+        <div>
+            <v-row>
+                <v-col cols="12">
+                    <h1 class="text-h3 mb-4">Economic Letters</h1>
+                    <div class="d-flex flex-wrap gap-2 mb-4">
+                        <v-btn 
+                            @click="loadLetters" 
+                            color="primary" 
+                            :loading="loadingLetters"
+                        >
+                            <v-icon left>mdi-refresh</v-icon>
+                            Load Letters
+                        </v-btn>
+                        <v-btn 
+                            @click="fetchNewLetters" 
+                            color="success" 
+                            :loading="fetchingNew"
+                            variant="outlined"
+                        >
+                            <v-icon left>mdi-download</v-icon>
+                            Fetch New
+                        </v-btn>
+                        <v-btn 
+                            @click="loadMoreLetters" 
+                            color="secondary" 
+                            :loading="loadingMore"
+                            variant="outlined"
+                            :disabled="!canLoadMore"
+                        >
+                            <v-icon left>mdi-plus</v-icon>
+                            Load More
+                        </v-btn>
+                        <v-btn 
+                            @click="showCacheStats = !showCacheStats" 
+                            color="info" 
+                            variant="outlined"
+                        >
+                            <v-icon left>mdi-database</v-icon>
+                            Cache Stats
+                        </v-btn>
+                    </div>
+                    
+                    <!-- Cache Stats Card -->
+                    <v-card v-if="showCacheStats" class="mb-4" variant="outlined">
+                        <v-card-title>
+                            <v-icon left>mdi-database</v-icon>
+                            Database & Cache Statistics
+                        </v-card-title>
+                        <v-card-text>
+                            <v-row v-if="cacheStats">
+                                <v-col cols="6" md="3">
+                                    <v-card variant="tonal" color="primary">
+                                        <v-card-text class="text-center">
+                                            <div class="text-h4">{{ cacheStats.total_letters }}</div>
+                                            <div class="text-caption">Cached Letters</div>
+                                        </v-card-text>
+                                    </v-card>
+                                </v-col>
+                                <v-col cols="6" md="3">
+                                    <v-card variant="tonal" color="secondary">
+                                        <v-card-text class="text-center">
+                                            <div class="text-h4">{{ cacheStats.total_insights }}</div>
+                                            <div class="text-caption">Cached Insights</div>
+                                        </v-card-text>
+                                    </v-card>
+                                </v-col>
+                                <v-col cols="6" md="3">
+                                    <v-card variant="tonal" color="success">
+                                        <v-card-text class="text-center">
+                                            <div class="text-h4">{{ cacheStats.valid_caches }}</div>
+                                            <div class="text-caption">Valid Caches</div>
+                                        </v-card-text>
+                                    </v-card>
+                                </v-col>
+                                <v-col cols="6" md="3">
+                                    <v-btn 
+                                        @click="clearCache" 
+                                        color="warning" 
+                                        :loading="clearingCache"
+                                        block
+                                    >
+                                        <v-icon left>mdi-delete</v-icon>
+                                        Clear Cache
+                                    </v-btn>
+                                </v-col>
+                            </v-row>
+                            <v-btn 
+                                @click="loadCacheStats" 
+                                color="primary" 
+                                :loading="loadingStats"
+                                variant="outlined"
+                                class="mt-2"
+                            >
+                                <v-icon left>mdi-refresh</v-icon>
+                                Refresh Stats
+                            </v-btn>
+                        </v-card-text>
+                    </v-card>
+                </v-col>
+            </v-row>
+
+            <v-row v-if="letters.length > 0">
+                <v-col 
+                    v-for="letter in letters" 
+                    :key="letter.url" 
+                    cols="12" 
+                    md="6" 
+                    lg="4"
+                >
+                    <v-card class="letter-card" elevation="2">
+                        <v-card-title class="text-h6">
+                            {{ letter.title }}
+                        </v-card-title>
+                        <v-card-subtitle>
+                            {{ letter.date }}
+                        </v-card-subtitle>
+                        <v-card-text>
+                            <p class="text-body-2">{{ letter.summary }}</p>
+                        </v-card-text>
+                        <v-card-actions>
+                            <v-btn 
+                                @click="viewLetter(letter)" 
+                                color="primary" 
+                                variant="text"
+                            >
+                                View & Analyze
+                            </v-btn>
+                            <v-btn 
+                                :href="letter.url" 
+                                target="_blank" 
+                                color="secondary" 
+                                variant="text"
+                            >
+                                Original
+                                <v-icon right>mdi-open-in-new</v-icon>
+                            </v-btn>
+                        </v-card-actions>
+                    </v-card>
+                </v-col>
+            </v-row>
+
+            <v-row v-else-if="!loadingLetters">
+                <v-col cols="12" class="text-center">
+                    <v-icon size="64" color="grey">mdi-file-document-outline</v-icon>
+                    <p class="text-h6 mt-4">No letters loaded yet</p>
+                    <p class="text-body-1">Click "Load Letters" to get started</p>
+                </v-col>
+            </v-row>
+
+            <!-- Load More Section -->
+            <v-row v-if="letters.length > 0" class="mt-4">
+                <v-col cols="12" class="text-center">
+                    <v-btn 
+                        @click="loadMoreLetters" 
+                        color="primary" 
+                        :loading="loadingMore"
+                        :disabled="!canLoadMore"
+                        variant="outlined"
+                        size="large"
+                    >
+                        <v-icon left>mdi-plus</v-icon>
+                        Load More Letters
+                    </v-btn>
+                    <p class="text-caption mt-2" v-if="!canLoadMore">No more letters available</p>
+                </v-col>
+            </v-row>
+        </div>
+    </template>
+
+    <!-- Letter Detail Component Template -->
+    <template id="letter-detail-template">
+        <div>
+            <v-row>
+                <v-col cols="12">
+                    <v-btn @click="$router.go(-1)" variant="text" class="mb-4">
+                        <v-icon left>mdi-arrow-left</v-icon>
+                        Back to Letters
+                    </v-btn>
+                    
+                    <h1 class="text-h4 mb-2">{{ title }}</h1>
+                    <p class="text-subtitle-1 text-grey-600 mb-2">{{ date }}</p>
+                    <v-btn 
+                        :href="letterUrl" 
+                        target="_blank" 
+                        color="primary" 
+                        variant="outlined"
+                        class="mb-4"
+                    >
+                        <v-icon left>mdi-open-in-new</v-icon>
+                        View Original Letter
+                    </v-btn>
+                </v-col>
+            </v-row>
+
+            <v-row>
+                <v-col cols="12" md="8">
+                    <v-card>
+                        <v-card-title>Letter Content</v-card-title>
+                        <v-card-text>
+                            <div class="text-body-1" style="white-space: pre-wrap; line-height: 1.6;">
+                                {{ content }}
+                            </div>
+                        </v-card-text>
+                    </v-card>
+                </v-col>
+
+                <v-col cols="12" md="4">
+                    <!-- Question History -->
+                    <v-card class="mb-4" v-if="questionHistory.length > 0">
+                        <v-card-title>
+                            <v-icon left>mdi-history</v-icon>
+                            Previous Questions
+                        </v-card-title>
+                        <v-card-text class="question-history">
+                            <v-expansion-panels variant="accordion">
+                                <v-expansion-panel
+                                    v-for="(item, index) in questionHistory"
+                                    :key="index"
+                                >
+                                    <v-expansion-panel-title>
+                                        <div class="d-flex justify-space-between align-center w-100">
+                                            <span class="text-truncate">{{ item.question }}</span>
+                                            <v-btn
+                                                @click.stop="deleteQuestion(index)"
+                                                icon="mdi-delete"
+                                                size="small"
+                                                color="error"
+                                                variant="text"
+                                            ></v-btn>
+                                        </div>
+                                    </v-expansion-panel-title>
+                                    <v-expansion-panel-text>
+                                        <div class="markdown-content" v-html="marked.parse(item.insight)"></div>
+                                        <p class="text-caption text-grey-600 mt-2">
+                                            Asked: {{ formatDate(item.created_at) }}
+                                        </p>
+                                    </v-expansion-panel-text>
+                                </v-expansion-panel>
+                            </v-expansion-panels>
+                        </v-card-text>
+                    </v-card>
+
+                    <!-- New Question -->
+                    <v-card class="insight-section">
+                        <v-card-title>AI Insights</v-card-title>
+                        <v-card-text>
+                            <v-textarea
+                                v-model="question"
+                                label="Ask a question about this letter"
+                                placeholder="e.g., What are the key economic indicators mentioned?"
+                                rows="3"
+                                variant="outlined"
+                            ></v-textarea>
+                            
+                            <v-btn 
+                                @click="getInsight" 
+                                color="primary" 
+                                :loading="loadingInsight"
+                                :disabled="!question.trim()"
+                                block
+                                class="mb-4"
+                            >
+                                <v-icon left>mdi-brain</v-icon>
+                                Get AI Insight
+                            </v-btn>
+
+                            <v-card v-if="insight" variant="outlined">
+                                <v-card-title class="text-h6">
+                                    <v-icon left color="primary">mdi-lightbulb</v-icon>
+                                    AI Analysis
+                                </v-card-title>
+                                <v-card-text>
+                                    <div class="markdown-content" v-html="renderedInsight"></div>
+                                </v-card-text>
+                            </v-card>
+                        </v-card-text>
+                    </v-card>
+                </v-col>
+            </v-row>
+        </div>
+    </template>
+
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3.3.8/dist/vue.global.js"></script>
+    <!-- Vuetify -->
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@3.4.4/dist/vuetify.min.js"></script>
+    <!-- Vue Router -->
+    <script src="https://unpkg.com/vue-router@4.2.5/dist/vue-router.global.js"></script>
+    <!-- Axios for HTTP requests -->
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.0/dist/axios.min.js"></script>
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+
+    <script>
+        const { createApp, ref, reactive, onMounted, computed, watch } = Vue;
+        const { createRouter, createWebHashHistory } = VueRouter;
+        const { createVuetify } = Vuetify;
+
+        // Home component
+        const Home = {
+            template: '#home-template',
+            setup() {
+                const letters = ref([]);
+                const loadingLetters = ref(false);
+                const fetchingNew = ref(false);
+                const loadingMore = ref(false);
+                const showCacheStats = ref(false);
+                const cacheStats = ref(null);
+                const loadingStats = ref(false);
+                const clearingCache = ref(false);
+                const currentPage = ref(0);
+                const pageSize = ref(10);
+                const canLoadMore = ref(true);
+
+                const loadLetters = async (page = 0, append = false) => {
+                    if (page === 0) loadingLetters.value = true;
+                    else loadingMore.value = true;
+                    
+                    try {
+                        const response = await axios.get(`/api/letters?page=${page}&limit=${pageSize.value}`);
+                        if (append) {
+                            letters.value = [...letters.value, ...response.data.letters];
+                        } else {
+                            letters.value = response.data.letters;
+                        }
+                        canLoadMore.value = response.data.has_more;
+                        currentPage.value = page;
+                    } catch (error) {
+                        console.error('Error loading letters:', error);
+                    } finally {
+                        loadingLetters.value = false;
+                        loadingMore.value = false;
+                    }
+                };
+
+                const fetchNewLetters = async () => {
+                    fetchingNew.value = true;
+                    try {
+                        const response = await axios.post('/api/letters/refresh');
+                        console.log(response.data.message);
+                        // Reload letters after refresh
+                        await loadLetters(0, false);
+                    } catch (error) {
+                        console.error('Error fetching new letters:', error);
+                    } finally {
+                        fetchingNew.value = false;
+                    }
+                };
+
+                const loadMoreLetters = async () => {
+                    if (canLoadMore.value) {
+                        await loadLetters(currentPage.value + 1, true);
+                    }
+                };
+
+                const loadCacheStats = async () => {
+                    loadingStats.value = true;
+                    try {
+                        const response = await axios.get('/api/cache/stats');
+                        cacheStats.value = response.data;
+                    } catch (error) {
+                        console.error('Error loading cache stats:', error);
+                    } finally {
+                        loadingStats.value = false;
+                    }
+                };
+
+                const clearCache = async () => {
+                    clearingCache.value = true;
+                    try {
+                        const response = await axios.post('/api/cache/clear');
+                        console.log(response.data.message);
+                        // Reload stats after clearing
+                        await loadCacheStats();
+                    } catch (error) {
+                        console.error('Error clearing cache:', error);
+                    } finally {
+                        clearingCache.value = false;
+                    }
+                };
+
+                // Load cache stats when showing stats
+                watch(showCacheStats, (newValue) => {
+                    if (newValue) {
+                        loadCacheStats();
+                    }
+                });
+
+                const viewLetter = (letter) => {
+                    // Navigate to letter detail view
+                    router.push({
+                        name: 'letter',
+                        params: { id: encodeURIComponent(letter.url) },
+                        query: { 
+                            title: letter.title,
+                            date: letter.date,
+                            content: letter.content,
+                            url: letter.url
+                        }
+                    });
+                };
+
+                return {
+                    letters,
+                    loadingLetters,
+                    fetchingNew,
+                    loadingMore,
+                    showCacheStats,
+                    cacheStats,
+                    loadingStats,
+                    clearingCache,
+                    canLoadMore,
+                    loadLetters,
+                    fetchNewLetters,
+                    loadMoreLetters,
+                    loadCacheStats,
+                    clearCache,
+                    viewLetter
+                };
+            }
+        };
+
+        // Letter detail component
+        const LetterDetail = {
+            template: '#letter-detail-template',
+            setup() {
+                const route = VueRouter.useRoute();
+                const title = ref(route.query.title || 'Economic Letter');
+                const date = ref(route.query.date || '');
+                const content = ref(route.query.content || '');
+                const letterUrl = ref(route.query.url || '');
+                const question = ref('');
+                const insight = ref('');
+                const loadingInsight = ref(false);
+                const questionHistory = ref([]);
+
+                // Load question history for this letter
+                const loadQuestionHistory = async () => {
+                    if (!letterUrl.value) return;
+                    
+                    try {
+                        const response = await axios.get(`/api/questions/${encodeURIComponent(letterUrl.value)}`);
+                        questionHistory.value = response.data;
+                    } catch (error) {
+                        console.error('Error loading question history:', error);
+                    }
+                };
+
+                const getInsight = async () => {
+                    if (!question.value.trim()) return;
+                    
+                    loadingInsight.value = true;
+                    try {
+                        const response = await axios.post('/api/insights', {
+                            letter_content: content.value,
+                            question: question.value,
+                            letter_url: letterUrl.value
+                        });
+                        insight.value = response.data.insight;
+                        
+                        // Add to history and reload
+                        await loadQuestionHistory();
+                        question.value = ''; // Clear the question input
+                    } catch (error) {
+                        console.error('Error getting insight:', error);
+                        insight.value = 'Error generating insight. Please try again.';
+                    } finally {
+                        loadingInsight.value = false;
+                    }
+                };
+
+                const deleteQuestion = async (index) => {
+                    const questionItem = questionHistory.value[index];
+                    try {
+                        await axios.delete(`/api/questions/${questionItem.id}`);
+                        questionHistory.value.splice(index, 1);
+                    } catch (error) {
+                        console.error('Error deleting question:', error);
+                    }
+                };
+
+                const formatDate = (dateString) => {
+                    return new Date(dateString).toLocaleString();
+                };
+
+                const renderedInsight = computed(() => {
+                    if (!insight.value) return '';
+                    return marked.parse(insight.value);
+                });
+
+                // Load question history on component mount
+                onMounted(() => {
+                    loadQuestionHistory();
+                });
+
+                return {
+                    title,
+                    date,
+                    content,
+                    letterUrl,
+                    question,
+                    insight,
+                    loadingInsight,
+                    questionHistory,
+                    getInsight,
+                    deleteQuestion,
+                    formatDate,
+                    renderedInsight,
+                    marked
+                };
+            }
+        };
+
+        // Router setup
+        const routes = [
+            { path: '/', component: Home },
+            { path: '/letter/:id', name: 'letter', component: LetterDetail }
+        ];
+
+        const router = createRouter({
+            history: createWebHashHistory(),
+            routes
+        });
+
+        // Vuetify theme
+        const vuetify = createVuetify({
+            theme: {
+                defaultTheme: 'light',
+                themes: {
+                    light: {
+                        colors: {
+                            primary: '#1976D2',
+                            secondary: '#424242',
+                            accent: '#82B1FF',
+                            error: '#FF5252',
+                            info: '#2196F3',
+                            success: '#4CAF50',
+                            warning: '#FFC107'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Main app
+        const app = createApp({
+            setup() {
+                const loading = ref(false);
+
+                // Global loading state
+                axios.interceptors.request.use(config => {
+                    loading.value = true;
+                    return config;
+                });
+
+                axios.interceptors.response.use(
+                    response => {
+                        loading.value = false;
+                        return response;
+                    },
+                    error => {
+                        loading.value = false;
+                        return Promise.reject(error);
+                    }
+                );
+
+                return {
+                    loading
+                };
+            }
+        });
+
+        app.use(router);
+        app.use(vuetify);
+        app.mount('#app');
+    </script>
+</body>
+</html>
